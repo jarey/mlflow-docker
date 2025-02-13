@@ -31,7 +31,10 @@ services:
     networks:
       - internal
   mlflow:
-    image: ubuntu/mlflow:2.1.1_1.0-22.04
+    # Official MLFlow image is missing packages for DB storage, we could extend that one, for now we use a custom one as the image is pretty simple.
+    build:
+      context: ./test_experiment
+      dockerfile: Dockerfile
     container_name: tracker_mlflow
     restart: unless-stopped
     ports:
@@ -71,7 +74,6 @@ services:
     build:
       context: ./test_experiment
       dockerfile: Dockerfile
-    platform: linux/amd64  # once continuumio/miniconda3:latest image work on native aarch64 (arm), remove this line 
     depends_on:
       - "mlflow"
     environment:
@@ -81,7 +83,7 @@ services:
       - MLFLOW_S3_ENDPOINT_URL=http://s3:9000
       - MLFLOW_TRACKING_URI=http://mlflow:5000
     entrypoint: >
-      /bin/sh -c "
+      /bin/bash -c "
       python3 mlflow_tracking.py;
       exit 0;
       "
