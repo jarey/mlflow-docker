@@ -15,20 +15,26 @@ services:
     volumes:
       - minio_new_volume:/data
   db:
-    image: mysql:8-oracle # -oracle tag supports arm64 architecture!
+    image: postgres:18
     restart: unless-stopped
     container_name: mlflow_db
     expose:
-      - "3306"
+      - "5432"
     environment:
-      - MYSQL_DATABASE=${MYSQL_DATABASE}
-      - MYSQL_USER=${MYSQL_USER}
-      - MYSQL_PASSWORD=${MYSQL_PASSWORD}
-      - MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB:-mlflow}
+      - POSTGRES_USER=${POSTGRES_USER:-mlflow}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_INITDB_ARGS=--encoding=UTF8 --locale=C
     volumes:
-      - db_new_volume:/var/lib/mysql
+      - db_new_volume:/var/lib/postgresql
     networks:
       - internal
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-mlflow}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
   mlflow:
     build:
       context: ./test_experiment
@@ -45,8 +51,10 @@ services:
     networks:
       - public
       - internal
-    entrypoint: mlflow server --backend-store-uri mysql+pymysql://${MYSQL_USER}:${MYSQL_PASSWORD}@db:3306/${MYSQL_DATABASE} --artifacts-destination s3://${AWS_BUCKET_NAME}/ -h 0.0.0.0
+    entrypoint: mlflow server --backend-store-uri postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB} --artifacts-destination s3://${AWS_BUCKET_NAME}/ -h 0.0.0.0
     depends_on:
+      db:
+        condition: service_healthy
       wait-for-db:
         condition: service_completed_successfully
   create_s3_buckets:
@@ -64,8 +72,13 @@ services:
   wait-for-db:
     image: atkrad/wait4x
     depends_on:
-      - db
-    command: tcp db:3306 -t 90s -i 250ms
+      db:
+        condition: service_healthy
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER:-mlflow}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB:-mlflow}
+    command: postgresql postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}?sslmode=disable -t 120s -i 1s
     networks:
       - internal
   run_test_experiment:
